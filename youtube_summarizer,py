@@ -2,18 +2,15 @@ import os
 import requests
 from flask import Flask, request, jsonify
 import yt_dlp
-import google.generativeai as genai
 
 app = Flask(__name__)
 
-# [설정] 내 API 키 및 텔레그램 정보 입력
+# [설정] 내 정보 정확히 입력하기
 GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
 TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
-genai.configure(api_key=GEMINI_API_KEY)
 
-# 쿠키 파일 경로 (핸드폰 다운로드 폴더 기준)
-COOKIE_PATH = "/sdcard/Download/cookies.txt"
+COOKIE_PATH = "./cookies.txt" # 현재 프로젝트 폴더 안의 cookies.txt 사용
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -25,9 +22,9 @@ def handle_webhook():
     video_url = data.get("url")
     
     if not video_url:
-        return jsonify({"status": "fail"}), 400
+        return jsonify({"status": "fail", "message": "No URL provided"}), 400
         
-    send_telegram("📱 핸드폰에서 웹훅 신호를 수신했습니다! 요약을 시작합니다...")
+    send_telegram("📱 핸드폰 웹훅 수신! 자막을 추출하고 요약을 시작합니다...")
     
     ydl_opts = {
         'cookiefile': COOKIE_PATH, 
@@ -39,6 +36,7 @@ def handle_webhook():
     }
     
     try:
+        # 1. yt-dlp로 자막 다운로드
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
             
@@ -47,19 +45,33 @@ def handle_webhook():
         with open(srt_path, 'r', encoding='utf-8') as f:
             transcript = f.read()
             
-        # Gemini 1.5 Flash 요약
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"아래 유튜브 자막을 보고 핵심 키워드 5개와 3줄 요약을 작성해줘:\n\n{transcript}"
-        response = model.generate_content(prompt)
+        # 2. requests로 구글 Gemini 1.5 Flash API에 직접 요청 (grpcio 컴파일 우회용!)
+        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        prompt = f"아래 유튜브 자막을 보고 중요한 핵심 키워드 5개를 뽑아주고, 전체 내용을 3줄 요약해줘:\n\n{transcript}"
         
-        send_telegram(f"✨ 핸드폰 요약 완료!\n\n{response.text}")
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
+        
+        response = requests.post(gemini_url, headers=headers, json=payload)
+        response_json = response.json()
+        
+        # 제미나이 답변 글자만 파싱
+        summary_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        
+        # 3. 텔레그램으로 최종 요약 배달
+        send_telegram(f"✨ 요약이 완료되었습니다!\n\n{summary_text}")
+        
+        # 사용한 임시 자막 파일 청소
         os.remove(srt_path)
         return jsonify({"status": "success"})
         
     except Exception as e:
-        send_telegram(f"❌ 에러 발생: {e}")
+        send_telegram(f"❌ 요약 처리 중 에러 발생: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    # 핸드폰 로컬 포트 5000번으로 대기
     app.run(host='0.0.0.0', port=5000)

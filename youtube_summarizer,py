@@ -1,3 +1,4 @@
+
 import os
 import requests
 from flask import Flask, request, jsonify
@@ -10,19 +11,33 @@ GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
 TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
 
-COOKIE_PATH = "./cookies.txt" # 현재 프로젝트 폴더 안의 cookies.txt 사용
+COOKIE_PATH = "./cookies.txt"
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text})
 
-@app.route('/webhook', methods=['POST'])
+def get_last_telegram_message():
+    """텔레그램 방에서 방금 내가 보낸 유튜브 링크를 자동으로 가져옵니다."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    try:
+        response = requests.get(url).json()
+        if response.get("ok") and response.get("result"):
+            # 가장 최근 메시지 추출
+            last_msg = response["result"][-1]["message"]["text"]
+            if "youtube.com" in last_msg or "youtu.be" in last_msg:
+                return last_msg
+    except Exception as e:
+        print(f"텔레그램 메시지 파싱 에러: {e}")
+    return None
+
+@app.route('/webhook', methods=['GET', 'POST']) # GET, POST 둘 다 허용!
 def handle_webhook():
-    data = request.json
-    video_url = data.get("url")
+    # Make.com에서 복잡하게 데이터를 안 넘겨줘도 파이썬이 텔레그램에서 직접 링크를 따옵니다.
+    video_url = get_last_telegram_message()
     
     if not video_url:
-        return jsonify({"status": "fail", "message": "No URL provided"}), 400
+        return jsonify({"status": "fail", "message": "No valid YouTube URL found in Telegram"}), 400
         
     send_telegram("📱 핸드폰 웹훅 수신! 자막을 추출하고 요약을 시작합니다...")
     
@@ -36,7 +51,6 @@ def handle_webhook():
     }
     
     try:
-        # 1. yt-dlp로 자막 다운로드
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
             
@@ -45,7 +59,6 @@ def handle_webhook():
         with open(srt_path, 'r', encoding='utf-8') as f:
             transcript = f.read()
             
-        # 2. requests로 구글 Gemini 1.5 Flash API에 직접 요청 (grpcio 컴파일 우회용!)
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}
         prompt = f"아래 유튜브 자막을 보고 중요한 핵심 키워드 5개를 뽑아주고, 전체 내용을 3줄 요약해줘:\n\n{transcript}"
@@ -57,15 +70,9 @@ def handle_webhook():
         }
         
         response = requests.post(gemini_url, headers=headers, json=payload)
-        response_json = response.json()
+        summary_text = response.json()['candidates'][0]['content']['parts'][0]['text']
         
-        # 제미나이 답변 글자만 파싱
-        summary_text = response_json['candidates'][0]['content']['parts'][0]['text']
-        
-        # 3. 텔레그램으로 최종 요약 배달
         send_telegram(f"✨ 요약이 완료되었습니다!\n\n{summary_text}")
-        
-        # 사용한 임시 자막 파일 청소
         os.remove(srt_path)
         return jsonify({"status": "success"})
         

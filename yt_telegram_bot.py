@@ -42,7 +42,7 @@ LANG = "ko"                       # caption language
 COOKIES_FILE = "cookies.txt"      # path to cookies.txt, OR leave "" to use a browser
 BROWSER = ""                      # e.g. "firefox" / "chrome"; used only if COOKIES_FILE is ""
 ALLOWED_CHAT_ID = None            # set to your numeric chat id (int) to lock the bot to you
-EXTRACTOR = "yt_script_extractor.py"
+EXTRACTOR = "yt_extract_file.py"
 OUT_DIR = "scripts"
 # --------------------------------------------------------------------------- #
 

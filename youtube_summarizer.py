@@ -73,7 +73,33 @@ def handle_webhook():
         
         with open(srt_path, 'r', encoding='utf-8') as f:
             transcript = f.read()
+
+# --- 1. 전체 스크립트 정제 및 전송 추가 ---
+        try:
+            # SRT 자막에서 숫자, 타임스탬프, 빈 줄을 지우고 대사만 추출합니다.
+            lines = transcript.split('\n')
+            clean_lines = []
+            for line in lines:
+                line = line.strip()
+                # 빈 줄, 숫자(자막 번호), 타임스탬프(--> 포함된 줄) 제외
+                if not line or line.isdigit() or '-->' in line:
+                    continue
+                # 중복되는 대사 연속 등장 방지
+                if not clean_lines or clean_lines[-1] != line:
+                    clean_lines.append(line)
             
+            full_script = " ".join(clean_lines)
+            
+            # 텔레그램은 메시지당 4000자 제한이 있으므로 글자수를 나누어 보냅니다.
+            max_len = 4000
+            send_telegram("📜 전체 스크립트 출력을 시작합니다...")
+            for i in range(0, len(full_script), max_len):
+                send_telegram(full_script[i:i+max_len])
+
+        except Exception as script_e:
+            print(f"전체 스크립트 정제 중 에러(요약은 계속 진행): {script_e}")
+        # --------------------------------------------
+        
         # 제미나이 AI API 세팅
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}

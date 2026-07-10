@@ -2,4 +2,4 @@
 # 봇 시작 - 화면이 꺼져도 죽지 않도록 wake-lock 을 건다
 termux-wake-lock
 echo "봇 시작됨 (화면 꺼져도 유지). 중지: Ctrl+C 후  termux-wake-unlock"
-python yt_telegram_bot.py
+python yt_script_extractor.py --cookies cookies.txt
